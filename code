@@ -1,0 +1,130 @@
+#include <xc.h>
+
+// Configuration bits (already provided)
+
+// Define _XTAL_FREQ if using delay functions
+#define _XTAL_FREQ 20000000
+
+// Pin definitions
+#define Trigger RB1 // Trigger for Ultrasonic sensor
+#define Echo RB2    // Echo for Ultrasonic sensor
+
+// Function prototypes
+void back_off();
+void calculate_distance();
+
+// Global variables
+int time_taken;
+int distance;
+
+void back_off() {
+    // Drive the robot backward
+    RC4 = 1; RC5 = 0; // Motor 1 reverse
+    RC6 = 0; RC7 = 1; // Motor 2 reverse
+    __delay_ms(1000);
+    // Stop motors after backing off
+    RC4 = 0; RC5 = 0;
+    RC6 = 0; RC7 = 0;
+}
+
+void calculate_distance() {
+    TMR1H = 0; TMR1L = 0; // Clear the timer
+
+    Trigger = 1;
+    __delay_us(10);
+    Trigger = 0;
+
+    while (Echo == 0); // Wait for echo start
+    TMR1ON = 1;
+    while (Echo == 1); // Wait for echo end
+    TMR1ON = 0;
+
+    time_taken = (TMR1L | (TMR1H << 8)); 
+    distance = (0.0272 * time_taken) / 2; // Calculate distance
+}
+
+void main() {
+    // Initialize TRIS registers
+    TRISD = 0x00; // PORTD as output
+    TRISB1 = 0; // Trigger pin as output
+    TRISB2 = 1; // Echo pin as input
+    TRISB3 = 0; // LED pin as output
+
+    TRISD2 = 1; TRISD3 = 1; // Front IR sensors as input
+    TRISD4 = 1; // Rear IR sensor as input
+    TRISC4 = 0; TRISC5 = 0; // Motor 1 pins as output
+    TRISC6 = 0; TRISC7 = 0; // Motor 2 pins as output
+    TRISD5 = 0; // Motor 1 enable pin as output
+    TRISD6 = 0; // Motor 2 enable pin as output
+    T1CON = 0x20; // Timer1 configuration
+
+    // Enable motors
+    RD5 = 1; // Enable Motor 1
+    RD6 = 1; // Enable Motor 2
+
+    while (1) {
+        calculate_distance();
+        
+        if (distance > 5) {
+            // Move forward
+            RC4 = 0; RC5 = 1; // Motor 1 forward
+            RC6 = 1; RC7 = 0; // Motor 2 forward
+            RB3 = 0; // Turn off LED
+        } else {
+            RB3 = 1; // Turn on LED for obstacle detection
+        }
+
+        // Check sensors and react
+        if (RD2 == 0 && RD3 == 1 && distance <= 5) { // Left sensor blocked
+            back_off();
+            if (RD4 == 0) {
+                RB3 = 1; // Turn on LED if rear obstacle
+            } else {
+                RB3 = 0; // Turn off LED
+            }
+            // Turn right
+            RC4 = 1; RC5 = 1; // Motor 1 stop
+            RC6 = 1; RC7 = 0; // Motor 2 forward
+            __delay_ms(500);
+        }
+
+        if (RD2 == 1 && RD3 == 0 && distance <= 5) { // Right sensor blocked
+            back_off();
+            if (RD4 == 0) {
+                RB3 = 1; // Turn on LED if rear obstacle
+            } else {
+                RB3 = 0; // Turn off LED
+            }
+            // Turn left
+            RC4 = 0; RC5 = 1; // Motor 1 forward
+            RC6 = 1; RC7 = 1; // Motor 2 stop
+            __delay_ms(500);
+        }
+
+        if (RD2 == 0 && RD3 == 0 && distance <= 5) { // Both front sensors blocked
+            back_off();
+            if (RD4 == 0) {
+                RB3 = 1; // Turn on LED if rear obstacle
+            } else {
+                RB3 = 0; // Turn off LED
+            }
+            // Turn left
+            RC4 = 0; RC5 = 1; // Motor 1 forward
+            RC6 = 1; RC7 = 1; // Motor 2 stop
+            __delay_ms(500);
+        }
+
+        if (RD2 == 1 && RD3 == 1 && distance <= 5) { // No clear path forward
+            back_off();
+            if (RD4 == 0) {
+                RB3 = 1; // Turn on LED if rear obstacle
+            } else {
+                RB3 = 0; // Turn off LED
+            }
+            // Stop all motors
+            RC4 = 0; RC5 = 0;
+            RC6 = 0; RC7 = 0;
+            __delay_ms(1000);
+        }
+    }
+}
